@@ -74,13 +74,14 @@
   .hint { font-size:11px; color:var(--dim); margin-top:14px; line-height:1.7; }
 
   body.immersive #dock, body.immersive #panel, body.immersive #mark { opacity:0; pointer-events:none; }
-  .pop { position:fixed; z-index:8; right:calc(10px + env(safe-area-inset-right)); bottom:calc(92px + env(safe-area-inset-bottom)); width:210px;
+  .pop { position:fixed; z-index:8; right:calc(10px + env(safe-area-inset-right)); bottom:calc(92px + env(safe-area-inset-bottom)); width:250px;
     background:rgba(14,14,18,.94); border:1px solid var(--line); border-radius:18px; padding:14px 10px 10px; backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px);
     transition:opacity .2s, transform .2s; }
+  .pop.left { right:auto; left:calc(10px + env(safe-area-inset-left)); }
   .pop.hidden { opacity:0; transform:translateY(8px); pointer-events:none; }
   @media (orientation:landscape) and (min-width:700px){ .pop { right:96px; bottom:auto; top:50%; transform:translateY(-50%); } .pop.hidden { transform:translate(8px,-50%); } }
   .pop b { display:block; font-size:12px; letter-spacing:.12em; color:var(--dim); padding:0 8px 8px; font-weight:500; }
-  .opt { display:flex; justify-content:space-between; width:100%; border:0; background:transparent; color:var(--fg); font-size:13px; padding:10px 10px; border-radius:10px; cursor:pointer; text-align:left; }
+  .opt { display:flex; gap:12px; align-items:baseline; justify-content:space-between; width:100%; border:0; background:transparent; color:var(--fg); font-size:13px; padding:10px 10px; border-radius:10px; cursor:pointer; text-align:left; }
   .opt small { color:var(--dim); font-size:11px; }
   .opt.on { background:rgba(255,179,92,.14); color:var(--acc); }
   .dlg { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); width:min(340px, calc(100% - 32px)); z-index:10;
@@ -116,14 +117,13 @@
   <b>粒度</b>
   <div id="denList"></div>
 </div>
-<div id="camdlg" class="dlg hidden">
-  <b>ミラーボクセル</b>
-  <p id="camMsg">カメラを使えませんでした。この画面ではカメラが許可されていない可能性があります。<br>代わりに、周りの写真や動画をミラーに映せます。</p>
-  <div class="dbtn">
-    <label class="pill">撮影する<input type="file" id="camShot" accept="image/*" capture="environment" hidden></label>
-    <label class="pill">画像・動画を選ぶ<input type="file" id="camPick" accept="image/*,video/*" hidden></label>
-    <button class="pill ghost" id="camCancel">やめる</button>
-  </div>
+<div id="mirPop" class="pop left hidden">
+  <b>ミラーに映すもの</b>
+  <button class="opt" data-k="front"><span>フロントカメラ</span><small>顔は映りにくく</small></button>
+  <button class="opt" data-k="back"><span>背面カメラ</span><small></small></button>
+  <label class="opt" data-k="pick"><span>画像・動画</span><small>選ぶ</small><input type="file" id="camPick" accept="image/*,video/*" hidden></label>
+  <label class="opt" data-k="shot"><span>撮影</span><small>その場で撮る</small><input type="file" id="camShot" accept="image/*" capture="environment" hidden></label>
+  <button class="opt" id="mirStop"><span>ミラーをやめる</span><small></small></button>
 </div>
 
 <section id="panel" class="closed">
@@ -150,7 +150,7 @@
       <div class="row"><span></span><button class="pill ghost" id="vibTest" style="justify-self:start">振動テスト</button><span></span></div>
       <div class="row"><span>音量</span><input type="range" id="vol" min="0" max="1" step="0.01" value="0.7"><output id="volo">0.70</output></div>
       <div class="hint">「鼓動」をオンにすると、対応しているスマホ（主にAndroid）は鼓動に合わせて振動します。iPhoneは振動に対応していません。</div>
-      <div class="hint">「ミラー」を押すとミラーボクセルになり、フロントカメラの映像がボクセルのミラーに映ります。カメラが使えないときは、撮影した写真や選んだ画像・動画を映せます。</div>
+      <div class="hint">「ミラー」から、フロントカメラ・背面カメラ・画像や動画・撮影を選ぶと、ボクセルのミラーに映ります。カメラは https のページで開いたときに使えます。</div>
       <div class="hint">画面をドラッグすると、その場所に渦が生まれます。<br>全画面中は画面をダブルタップで戻ります。<br><br>このページは展示「null²」に着想を得て個人が作った非公式のファンアートです。作者・展示の公式とは関係ありません。</div>
     </div>
   </div>
@@ -317,7 +317,7 @@ const FS_V = `#version 300 es
 precision highp float;
 in vec2 vUv; out vec4 o;
 uniform sampler2D uC; uniform vec2 uRes; uniform float uAmt, uTime, uPop, uPulse;
-uniform sampler2D uCam; uniform float uCamMix, uCamAsp, uMelt, uCryst;
+uniform sampler2D uCam; uniform float uCamMix, uCamAsp, uMelt, uCryst, uCamFront;
 float hash(vec2 p){ return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453); }
 vec3 vid(vec2 q){ float m=min(uRes.x,uRes.y); return texture(uC, 0.5 + q*0.5*vec2(m/uRes.x, m/uRes.y)).rgb; }
 // the room in front of the voxel, as seen in the mirror (bright ceiling, columns, people, floor)
@@ -335,9 +335,11 @@ vec3 room(vec2 v){
 // camera image as the reflected surroundings: the centre of the frame (your face) is pushed aside so the scenery fills the mirror
 vec3 cam(vec2 v){
   float r = length(v); vec2 d = r>1e-4 ? v/r : vec2(0.,1.);
-  float rr = 0.28 + 0.68*smoothstep(0.0, 1.5, r);
+  // front camera: only the outer ring of the frame (no face); back camera / images: almost the whole frame
+  float rr = mix(0.18 + 0.78*smoothstep(0.0,1.5,r), 0.62 + 0.36*smoothstep(0.0,1.5,r), uCamFront);
   vec2 sc = uCamAsp>1.0 ? vec2(1.0/uCamAsp, 1.0) : vec2(1.0, uCamAsp);
-  vec2 uv = 0.5 + d*rr*0.5*sc; uv.x = 1.0-uv.x;
+  if(uCamFront>0.5) sc = vec2(1.0);                                      // use the corners of the frame too
+  vec2 uv = 0.5 + d*rr*0.5*sc; if(uCamFront>0.5) uv.x = 1.0-uv.x;
   vec3 c = texture(uCam, clamp(uv,0.002,0.998)).rgb;
   return (pow(c, vec3(1.08))*1.08 + 0.03)*vec3(0.95,0.97,1.0);
 }
@@ -645,31 +647,41 @@ const camTex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, camTex);
 gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,1,1,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array([128,128,128,255]));
 gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
 gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
-async function startCam(){
+let camKind="";
+async function startCam(facing){
   try{
     if(!navigator.mediaDevices?.getUserMedia) return false;
-    camStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:"user", width:{ideal:1280}, height:{ideal:720} }, audio:false });
+    camStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ ideal: facing }, width:{ideal:1280}, height:{ideal:720} }, audio:false });
     const v=document.createElement("video"); v.playsInline=true; v.muted=true; v.srcObject=camStream; await v.play();
     camSrc=v; camIsVideo=true; return true;
   }catch(e){ return false; }
 }
 function stopCam(){ camStream?.getTracks().forEach(t=>t.stop()); camStream=null; if(camIsVideo && camSrc && !camSrc.loop) camSrc=null; }
-function setMirUI(){ $("bMir").classList.toggle("on", mirOn); }
-async function mirrorOn(){
-  mirOn=true; if(!voxOn){ voxOn=true; $("bVox").classList.add("on"); } setMirUI();
-  if(await startCam()) { toast("カメラの映像をミラーに映します"); return; }
-  $("camdlg").classList.remove("hidden");
+const mirPop=$("mirPop");
+function closeMirPop(){ mirPop.classList.add("hidden"); }
+function setMirUI(){ $("bMir").classList.toggle("on", mirOn); $("mirStop").style.display = mirOn ? "" : "none";
+  mirPop.querySelectorAll(".opt[data-k]").forEach(o=>o.classList.toggle("on", mirOn && o.dataset.k===camKind)); }
+function voxelUp(){ if(!voxOn){ voxOn=true; $("bVox").classList.add("on"); } }
+async function useCamera(kind){
+  closeMirPop(); stopCam();
+  if(await startCam(kind==="front" ? "user" : "environment")){ camKind=kind; mirOn=true; voxelUp(); setMirUI(); }
+  else { toast("カメラを使えませんでした（https のページで開くと使えます）"); if(!camSrc){ mirOn=false; setMirUI(); } }
 }
-function mirrorOff(){ mirOn=false; stopCam(); setMirUI(); $("camdlg").classList.add("hidden"); }
-$("bMir").onclick=()=>{ mirOn ? mirrorOff() : mirrorOn(); };
-$("camCancel").onclick=()=>{ if(!camSrc) mirrorOff(); else $("camdlg").classList.add("hidden"); };
-function useFile(f){
-  if(!f) return; const url=URL.createObjectURL(f);
+function useFile(f, kind){
+  closeMirPop(); if(!f) return; stopCam(); const url=URL.createObjectURL(f);
   if(f.type.startsWith("video")){ const v=document.createElement("video"); v.src=url; v.loop=true; v.muted=true; v.playsInline=true; v.play().catch(()=>{}); camSrc=v; camIsVideo=true; }
   else { const im=new Image(); im.onload=()=>{ camSrc=im; camIsVideo=false; camDirty=true; }; im.src=url; }
-  $("camdlg").classList.add("hidden");
+  camKind=kind; mirOn=true; voxelUp(); setMirUI();
 }
-$("camShot").onchange=e=>useFile(e.target.files[0]); $("camPick").onchange=e=>useFile(e.target.files[0]);
+function mirrorOff(){ mirOn=false; stopCam(); setMirUI(); closeMirPop(); }
+$("bMir").onclick=e=>{ e.stopPropagation(); setMirUI(); mirPop.classList.toggle("hidden"); };
+mirPop.querySelector('[data-k="front"]').onclick=()=>useCamera("front");
+mirPop.querySelector('[data-k="back"]').onclick=()=>useCamera("back");
+$("mirStop").onclick=mirrorOff;
+$("camPick").onchange=e=>{ useFile(e.target.files[0],"pick"); e.target.value=""; };
+$("camShot").onchange=e=>{ useFile(e.target.files[0],"shot"); e.target.value=""; };
+document.addEventListener("pointerdown",e=>{ if(!mirPop.classList.contains("hidden") && !mirPop.contains(e.target) && !$("bMir").contains(e.target)) closeMirPop(); });
+setMirUI();
 let voxTaps=0, voxTapT=0;
 $("bVox").onclick=()=>{
   const now=performance.now(); if(now-voxTapT>1200) voxTaps=0; voxTapT=now; voxTaps++;
@@ -878,7 +890,7 @@ function frame(now){
     camMix += (((mirOn&&camReady)?1:0)-camMix)*Math.min(1,dt*2);
     gl.useProgram(PV.p); const v=PV.u;
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D,camTex); gl.uniform1i(v.uCam,1);
-    gl.uniform1f(v.uCamMix,camMix); gl.uniform1f(v.uCamAsp, camW/Math.max(1,camH));
+    gl.uniform1f(v.uCamMix,camMix); gl.uniform1f(v.uCamFront, camKind==='front'?1:0); gl.uniform1f(v.uCamAsp, camW/Math.max(1,camH));
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,cTex); gl.uniform1i(v.uC,0);
     gl.uniform2f(v.uRes,cv.width,cv.height); gl.uniform1f(v.uAmt, voxOn ? voxAmt : 1); gl.uniform1f(v.uCryst,crystP); gl.uniform1f(v.uMelt,meltP); gl.uniform1f(v.uTime,wallT); gl.uniform1f(v.uPop,Math.max(0.02,pop)); const pl=snd.pulse(); gl.uniform1f(v.uPulse, pl); heartEmo.classList.toggle("beat", pl>0.25);
     gl.drawArrays(gl.TRIANGLES,0,3);
